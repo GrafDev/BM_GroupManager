@@ -102,14 +102,25 @@ namespace BM_GroupManager.Services
                             RotationAngle = rotation
                         });
 
-                        // РАЗБИРАЕМ И ТЕГИРУЕМ ВСЕ ЭЛЕМЕНТЫ
+                        // РАЗБИРАЕМ И ТЕГИРУЕМ
                         ICollection<ElementId> members = grp.UngroupMembers();
                         foreach (ElementId id in members)
                         {
                             Element el = doc.GetElement(id);
                             if (el == null) continue;
 
-                            el.LookupParameter(SharedParameterService.ParameterNameType)?.Set(typeGuid.ToString());
+                            // ТОЛЬКО ПЕРВЫЙ экземпляр помечаем ID ТИПА (он будет образцом для NewGroup)
+                            if (i == 0)
+                            {
+                                el.LookupParameter(SharedParameterService.ParameterNameType)?.Set(typeGuid.ToString());
+                            }
+                            else
+                            {
+                                // Остальные "отвязываем" от типа, чтобы они не попали в NewGroup
+                                el.LookupParameter(SharedParameterService.ParameterNameType)?.Set(string.Empty);
+                            }
+
+                            // Всех помечаем ID ЭКЗЕМПЛЯРА (чтобы потом найти и удалить/заменить)
                             el.LookupParameter(SharedParameterService.ParameterNameInstance)?.Set(instanceId.ToString());
                         }
                     }
@@ -273,16 +284,28 @@ namespace BM_GroupManager.Services
                     {
                         XYZ point = new XYZ(instRec.InsertionX, instRec.InsertionY, instRec.InsertionZ);
                         
-                        Group currentGroup;
+                        Group currentGroup = null;
                         try 
                         {
                             if (!firstSkipped)
                             {
+                                // ПЕРВЫЙ ЭКЗЕМПЛЯР (Мастер)
                                 currentGroup = masterGroupInstance;
                                 firstSkipped = true;
                             }
                             else
                             {
+                                // ВТОРОСТЕПЕННЫЕ ЭКЗЕМПЛЯРЫ
+                                // 1. Ищем и УДАЛЯЕМ старые элементы этого экземпляра (мусор после разборки)
+                                var trashStrings = new FilteredElementCollector(doc)
+                                    .WhereElementIsNotElementType()
+                                    .Where(e => e.LookupParameter(SharedParameterService.ParameterNameInstance)?.AsString() == instRec.InstanceId.ToString())
+                                    .Select(e => e.Id)
+                                    .ToList();
+                                
+                                if (trashStrings.Any()) doc.Delete(trashStrings);
+
+                                // 2. Ставим новую группу
                                 currentGroup = doc.Create.PlaceGroup(point, newType);
                             }
                         }
@@ -290,6 +313,8 @@ namespace BM_GroupManager.Services
                         {
                             continue;
                         }
+
+                        if (currentGroup == null) continue;
 
                         // Поворот, если нужен (ВЫЧИСЛЯЕМ ДЕЛЬТУ v1.1.57)
                         double deltaRotation = instRec.RotationAngle - record.TemplateRotation;
