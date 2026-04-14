@@ -1,0 +1,27 @@
+# User-specific files
+*.user
+*.userosscache
+*.sln.docuser
+
+# Build results
+[Bb]in/
+[Oo]bj/
+[Rr]elease*/
+[Dd]ebug*/
+
+# Revit journals
+journal.*.txt
+
+# Visual Studio files
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docuser
+
+# Temp files
+*.tmp
+*.temp
+
+# Others
+.DS_Store

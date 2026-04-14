@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>BURO Group Manager</Name>
+    <Assembly>BM_GroupManager.dll</Assembly>
+    <AddInId>F9A8B7C6-D5E4-43A2-B1B0-9A8B7C6D5E4F</AddInId>
+    <FullClassName>BM_GroupManager.App</FullClassName>
+    <VendorId>BM</VendorId>
+    <VendorDescription>BuroMoscow</VendorDescription>
+  </AddIn>
+</RevitAddIns>
