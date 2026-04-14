@@ -85,12 +85,12 @@ namespace BM_GroupManager.Services
                         Group grp = instances[i];
                         Guid instanceId = Guid.NewGuid();
                         
-                        // Запоминаем данные о положении (МЕТОД МАЯКА v1.1.59)
+                        // Запоминаем данные о положении (СИСТЕМА АБСОЛЮТНОГО ГОРИЗОНТА v1.1.62)
                         LocationPoint loc = grp.Location as LocationPoint;
                         XYZ origin = loc?.Point ?? XYZ.Zero;
-                        double rotation = GetBeaconRotation(doc, grp);
+                        double rotation = GetAbsoluteRotation(grp);
 
-                        // Сохраняем угол ОБРАЗЦА (первого экземпляра) для расчета дельты
+                        // Сохраняем угол ОБРАЗЦА (первого экземпляра)
                         if (i == 0) record.TemplateRotation = rotation;
 
                         record.Instances.Add(new InstanceRecord
@@ -118,7 +118,7 @@ namespace BM_GroupManager.Services
                         }
                         else
                         {
-                            // ОСТАЛЬНЫЕ ЭКЗЕМПЛЯРЫ УДАЛЯЕМ СРАЗУ (v1.1.61)
+                            // ОСТАЛЬНЫЕ ЭКЗЕМПЛЯРЫ УДАЛЯЕМ СРАЗУ
                             doc.Delete(members);
                         }
                     }
@@ -130,8 +130,8 @@ namespace BM_GroupManager.Services
                     tx.Commit();
 
                     TaskDialog.Show("Разборка завершена", 
-                        $"✓ Тип \"{record.TypeName}\" полностью разобран.\n" +
-                        $"Все элементы помечены для восстановления.\n" +
+                        $"✓ Тип \"{record.TypeName}\" разобран.\n" +
+                        $"Оставлен 1 образец для редактирования.\n" +
                         $"Запомнено позиций: {instances.Count}");
 
                     App.RefreshManagerPane();
@@ -147,28 +147,26 @@ namespace BM_GroupManager.Services
         }
 
         /// <summary>
-        /// Вспомогательный метод для получения угла поворота группы через её участников (Метод Маяка).
+        /// Возвращает абсолютный угол поворота группы относительно горизонтали проекта (v1.1.62).
         /// </summary>
-        private static double GetBeaconRotation(Document doc, Group grp)
+        public static double GetAbsoluteRotation(Group grp)
         {
-            // Пытаемся взять стандартный поворот (если Revit позволит)
-            try 
+            // 1. Попытка через стандартное свойство
+            try
             {
                 if (grp.Location is LocationPoint lp) return lp.Rotation;
             }
             catch { }
 
-            // Если не вышло — ищем "Маяк" среди участников
+            // 2. Если не вышло — ищем ориентацию среди участников
+            Document doc = grp.Document;
             var memberIds = grp.GetMemberIds();
             foreach (var id in memberIds)
             {
                 Element el = doc.GetElement(id);
                 if (el == null) continue;
 
-                // Для FamilyInstance (мебель, оборудование)
                 if (el.Location is LocationPoint lp) return lp.Rotation;
-                
-                // Для Стен и Линий
                 if (el.Location is LocationCurve lc && lc.Curve is Line line)
                 {
                     XYZ dir = line.Direction;
@@ -305,17 +303,16 @@ namespace BM_GroupManager.Services
 
                         if (currentGroup == null) continue;
 
-                        // Поворот, если нужен (ВЫЧИСЛЯЕМ ДЕЛЬТУ v1.1.57)
-                        double deltaRotation = instRec.RotationAngle - record.TemplateRotation;
+                        // ПРИНУДИТЕЛЬНАЯ ДОВОДКА ДО АБСОЛЮТНОГО ГОРИЗОНТА (v1.1.62)
+                        // Вместо разницы между экземплярами, мы берем Цель и вычитаем Текущий Факт.
+                        double currentRotation = GetAbsoluteRotation(currentGroup);
+                        double targetRotation = instRec.RotationAngle;
+                        double deltaRotation = targetRotation - currentRotation;
 
-                        // Вращаем все экземпляры, чей угол отличается от базового образца
                         if (Math.Abs(deltaRotation) > 0.0001) 
                         {
                             try
                             {
-                                // ДИАГНОСТИКА: временно показываем расчеты
-                                // TaskDialog.Show("Debug Rotation", $"Target={instRec.RotationAngle:F3}, Template={record.TemplateRotation:F3}, Delta={deltaRotation:F3}");
-
                                 Line axis = Line.CreateBound(point, point + XYZ.BasisZ);
                                 ElementTransformUtils.RotateElement(doc, currentGroup.Id, axis, deltaRotation);
                             }

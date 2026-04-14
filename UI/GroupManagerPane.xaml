@@ -129,7 +129,7 @@
                             <DropShadowEffect Color="#DDDDDD" BlurRadius="5" ShadowDepth="2" Direction="270" Opacity="0.5"/>
                         </TextBlock.Effect>
                     </TextBlock>
-                    <TextBlock Text="v1.1.61 - УПРАВЛЕНИЕ ГРУППАМИ" 
+                    <TextBlock Text="v1.1.62 - УПРАВЛЕНИЕ ГРУППАМИ" 
                                FontSize="10" Foreground="{StaticResource TextLight}" 
                                Margin="2,2,0,0"/>
                 </StackPanel>
