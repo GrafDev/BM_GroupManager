@@ -41,7 +41,7 @@ namespace BM_GroupManager
             // Создаём панель
             _pane = new GroupManagerPane();
 
-            application.RegisterDockablePane(PaneId, "BURO Group Manager v1.1.60", _pane);
+            application.RegisterDockablePane(PaneId, "BURO Group Manager v1.1.61", _pane);
 
             // Подписываемся на Idling, чтобы подхватить UIApplication автоматически
             application.Idling += OnIdling;
@@ -111,7 +111,7 @@ namespace BM_GroupManager
                 dll,
                 "BM_GroupManager.Commands.ShowManagerCommand")
             {
-                ToolTip = "Открыть панель управления синхронизацией групп (v1.1.60)",
+                ToolTip = "Открыть панель управления синхронизацией групп (v1.1.61)",
                 LargeImage = LoadResourceImage("iconGroupManager.png")
             };
 

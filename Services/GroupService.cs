@@ -102,26 +102,24 @@ namespace BM_GroupManager.Services
                             RotationAngle = rotation
                         });
 
-                        // РАЗБИРАЕМ И ТЕГИРУЕМ
+                        // РАЗБИРАЕМ
                         ICollection<ElementId> members = grp.UngroupMembers();
-                        foreach (ElementId id in members)
+
+                        // ТОЛЬКО ПЕРВЫЙ экземпляр оставляем и помечаем как образец
+                        if (i == 0)
                         {
-                            Element el = doc.GetElement(id);
-                            if (el == null) continue;
-
-                            // ТОЛЬКО ПЕРВЫЙ экземпляр помечаем ID ТИПА (он будет образцом для NewGroup)
-                            if (i == 0)
+                            foreach (ElementId id in members)
                             {
+                                Element el = doc.GetElement(id);
+                                if (el == null) continue;
                                 el.LookupParameter(SharedParameterService.ParameterNameType)?.Set(typeGuid.ToString());
+                                el.LookupParameter(SharedParameterService.ParameterNameInstance)?.Set(instanceId.ToString());
                             }
-                            else
-                            {
-                                // Остальные "отвязываем" от типа, чтобы они не попали в NewGroup
-                                el.LookupParameter(SharedParameterService.ParameterNameType)?.Set(string.Empty);
-                            }
-
-                            // Всех помечаем ID ЭКЗЕМПЛЯРА (чтобы потом найти и удалить/заменить)
-                            el.LookupParameter(SharedParameterService.ParameterNameInstance)?.Set(instanceId.ToString());
+                        }
+                        else
+                        {
+                            // ОСТАЛЬНЫЕ ЭКЗЕМПЛЯРЫ УДАЛЯЕМ СРАЗУ (v1.1.61)
+                            doc.Delete(members);
                         }
                     }
 
@@ -296,16 +294,7 @@ namespace BM_GroupManager.Services
                             else
                             {
                                 // ВТОРОСТЕПЕННЫЕ ЭКЗЕМПЛЯРЫ
-                                // 1. Ищем и УДАЛЯЕМ старые элементы этого экземпляра (мусор после разборки)
-                                var trashStrings = new FilteredElementCollector(doc)
-                                    .WhereElementIsNotElementType()
-                                    .Where(e => e.LookupParameter(SharedParameterService.ParameterNameInstance)?.AsString() == instRec.InstanceId.ToString())
-                                    .Select(e => e.Id)
-                                    .ToList();
-                                
-                                if (trashStrings.Any()) doc.Delete(trashStrings);
-
-                                // 2. Ставим новую группу
+                                // Просто ставим новую группу (мусор был удален при разборке v1.1.61)
                                 currentGroup = doc.Create.PlaceGroup(point, newType);
                             }
                         }
