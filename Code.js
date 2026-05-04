@@ -2,13 +2,20 @@
 var scriptProperties = PropertiesService.getScriptProperties();
 var FIREBASE_DB_URL = scriptProperties.getProperty('FIREBASE_DB_URL');
 var FIREBASE_SECRET = scriptProperties.getProperty('FIREBASE_SECRET');
+var ADMIN_EMAIL = scriptProperties.getProperty('ADMIN_EMAIL') || 'gregory.yakovlev@gmail.com';
+var DASHBOARD_URL = 'https://bm-time-manager.web.app';
 
 // ВАЖНО: Если вы только что обновили код, запустите функцию setupSecrets() один раз
 function setupSecrets() {
   var props = PropertiesService.getScriptProperties();
   props.setProperty('FIREBASE_DB_URL', 'https://bm-time-manager-default-rtdb.europe-west1.firebasedatabase.app');
   props.setProperty('FIREBASE_SECRET', 'xThKbWvljFGBPVxJxTKYHuLpyvzkKcnhkVCRx8pR');
-  console.log("Секреты успешно сохранены в Script Properties!");
+  props.setProperty('ADMIN_EMAIL', 'gregory.yakovlev@gmail.com');
+  props.setProperty('INVITE_CODE', 'BURO2026');
+  
+  // Записываем код в базу для проверки на фронтенде
+  updateFirebaseNode("/config/inviteCode", props.getProperty('INVITE_CODE'));
+  console.log("Секреты и Код приглашения успешно сохранены!");
 }
 
 function pushFirebaseLog(message, data) {
@@ -18,11 +25,58 @@ function pushFirebaseLog(message, data) {
   try { UrlFetchApp.fetch(url, options); } catch (err) {}
 }
 
+function doGet(e) {
+  var params = e.parameter;
+  if (params.action === 'approve' && params.uid) {
+    var url = FIREBASE_DB_URL + "/whitelist/" + params.uid + ".json?auth=" + FIREBASE_SECRET;
+    UrlFetchApp.fetch(url, {
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify({ approved: true, email: params.email, timestamp: new Date().toISOString() })
+    });
+
+    return HtmlService.createHtmlOutput(
+      '<div style="font-family: sans-serif; text-align: center; padding: 50px;">' +
+        '<h1 style="color: #fc4614;">Доступ одобрен!</h1>' +
+        '<p>Сотрудник <b>' + params.email + '</b> теперь может пользоваться дашбордом.</p>' +
+        '<a href="' + DASHBOARD_URL + '" style="display: inline-block; padding: 10px 20px; background: #fc4614; color: white; text-decoration: none; border-radius: 5px;">Перейти в BURO Manager</a>' +
+      '</div>'
+    );
+  }
+  return HtmlService.createHtmlOutput('BURO Manager Webhook is active.');
+}
+
 function doPost(e) {
+  var contents;
   try {
+    // 1. Проверяем, пришел ли JSON (от Дашборда)
+    if (e.postData && e.postData.contents) {
+      contents = JSON.parse(e.postData.contents);
+      
+      if (contents.action === 'request_access') {
+        var approveUrl = ScriptApp.getService().getUrl() + "?action=approve&uid=" + contents.uid + "&email=" + encodeURIComponent(contents.email);
+        
+        MailApp.sendEmail({
+          to: ADMIN_EMAIL,
+          subject: "🔔 Запрос доступа: " + contents.name,
+          htmlBody: 
+            '<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">' +
+              '<h2 style="color: #fc4614;">Новый запрос в BURO Time Manager</h2>' +
+              '<p><b>Сотрудник:</b> ' + contents.name + '</p>' +
+              '<p><b>Email:</b> ' + contents.email + '</p>' +
+              '<p>Чтобы дать доступ, нажмите кнопку ниже:</p>' +
+              '<a href="' + approveUrl + '" style="display: inline-block; padding: 12px 24px; background: #fc4614; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">ОДОБРИТЬ ДОСТУП</a>' +
+              '<p style="color: #666; font-size: 12px; margin-top: 20px;">Если вы не знаете этого человека, просто проигнорируйте письмо.</p>' +
+            '</div>'
+        });
+        return ContentService.createTextOutput(JSON.stringify({ status: 'sent' })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // 2. Иначе обрабатываем как параметры от Битрикса
     var params = e.parameter;
     var eventName = params['event'] || '';
-    pushFirebaseLog("Received doPost", { eventName: eventName, params: params });
+    pushFirebaseLog("Received Bitrix Event", { eventName: eventName });
     
     var eventLower = eventName.toLowerCase();
     var auth = { accessToken: params['auth[access_token]'], clientEndpoint: params['auth[client_endpoint]'] };
@@ -41,52 +95,49 @@ function doPost(e) {
     
     return ContentService.createTextOutput(JSON.stringify({status: 'success'})).setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
-    pushFirebaseLog("Error in doPost", { error: error.message });
-    return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+    pushFirebaseLog("Error in doPost", { error: error.toString() });
+    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: error.toString()})).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
 function syncGroupMembers(groupId, auth) {
   try {
     var now = new Date().toISOString();
-    
-    // 1. Инфо о группе
     var groupInfoRes = UrlFetchApp.fetch(auth.clientEndpoint + "sonet_group.get?auth=" + auth.accessToken, {
       method: 'post', contentType: 'application/json', payload: JSON.stringify({ FILTER: { ID: groupId } })
     });
     var groupInfo = JSON.parse(groupInfoRes.getContentText()).result[0];
     if (!groupInfo) return;
 
-    // 2. Все активные сотрудники портала
     var allUsersRes = UrlFetchApp.fetch(auth.clientEndpoint + "user.get?auth=" + auth.accessToken, {
       method: 'post', contentType: 'application/json', payload: JSON.stringify({ ACTIVE: "Y" })
     });
     var allUsers = JSON.parse(allUsersRes.getContentText()).result || [];
 
-    // 3. Текущие участники группы
     var currentMembersRes = UrlFetchApp.fetch(auth.clientEndpoint + "sonet_group.user.get?auth=" + auth.accessToken, {
       method: 'post', contentType: 'application/json', payload: JSON.stringify({ ID: groupId })
     });
     var currentMembers = JSON.parse(currentMembersRes.getContentText()).result || [];
     var currentMemberIds = currentMembers.map(function(m) { return String(m.USER_ID); });
 
-    // 4. Синхронизируем периоды для ВСЕХ сотрудников
     allUsers.forEach(function(user) {
       var uid = String(user.ID);
       var isInGroup = currentMemberIds.indexOf(uid) !== -1;
       manageMemberPeriod(groupId, uid, isInGroup ? "joined" : "left", now);
     });
 
-    // 5. Обновляем справочник имен
     var membersData = {};
     allUsers.forEach(function(u) {
-      membersData[String(u.ID)] = { fullName: (u.NAME + " " + u.LAST_NAME).trim() };
+      membersData[String(u.ID)] = { fullName: (u.NAME + " " + (u.LAST_NAME || "")).trim() };
     });
 
-    updateFirebaseNode("/groups/" + groupId + "/info", { id: groupId, name: groupInfo.NAME, archived: groupInfo.CLOSED === 'Y', status: 'active', updatedAt: now });
+    updateFirebaseNode("/groups/" + groupId + "/info", { 
+      id: groupId, 
+      name: groupInfo.NAME, 
+      status: groupInfo.CLOSED === 'Y' ? 'archived' : 'active', 
+      updatedAt: now 
+    });
     updateFirebaseNode("/groups/" + groupId + "/members", membersData);
-    
-    pushFirebaseLog("Secure Sync v21 Done", { groupId: groupId });
     
   } catch (err) {
     pushFirebaseLog("Error in syncGroupMembers", { groupId: groupId, error: err.message });
@@ -148,8 +199,4 @@ function scheduledSync() {
   var groupsRes = UrlFetchApp.fetch(auth.clientEndpoint + "sonet_group.get?auth=" + auth.accessToken);
   var groups = JSON.parse(groupsRes.getContentText()).result || [];
   groups.forEach(function(g) { syncGroupMembers(g.ID, auth); });
-}
-
-function doGet(e) {
-  return ContentService.createTextOutput("Webhook v21 Secure Active. Using Script Properties for secrets.").setMimeType(ContentService.MimeType.TEXT);
 }
